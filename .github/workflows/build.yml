@@ -1,0 +1,89 @@
+name: watchgha
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: [clippy, rustfmt]
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: TZ=UTC cargo test
+
+  build:
+    name: ${{ matrix.target }}
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            make: zigbuild
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            make: zigbuild
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            make: build
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            make: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cargo-zigbuild
+        if: matrix.make == 'zigbuild'
+        run: cargo install --locked cargo-zigbuild
+      - name: Build
+        run: cargo ${{ matrix.make }} --release --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/watchgha
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Name the binaries
+        run: |
+          cd dist
+          for dir in */; do
+            mv "$dir/watchgha" "watchgha-${dir%/}"
+            rmdir "$dir"
+          done
+      - run: cd dist && sha256sum watchgha-* > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
