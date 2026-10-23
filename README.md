@@ -15,27 +15,27 @@ If you like, the name can be pronounced, "Watching? Ha!"
 
 ### Installation
 
-Download a binary for your platform from the
-[GitHub releases][releases] page.  The Linux binaries are statically linked,
-so they work on any Linux system:
+Download an archive for your platform from the
+[GitHub releases][releases] page.  The `musl` variants are statically
+linked and work on any Linux system; the `gnu` variants are smaller and use
+the system `glibc`:
 
 ```shell
-$ curl -L -O https://github.com/zydou/watchgha/releases/latest/download/watchgha-x86_64-unknown-linux-musl
-$ chmod +x watchgha-x86_64-unknown-linux-musl
-$ sudo mv watchgha-x86_64-unknown-linux-musl /usr/local/bin/watchgha
+$ curl -L -O https://github.com/zydou/watchgha/releases/latest/download/watchgha-x86_64-unknown-linux-musl.tar.xz
+$ tar -xJf watchgha-x86_64-unknown-linux-musl.tar.xz
+$ sudo mv watchgha /usr/local/bin/watchgha
 ```
 
-Four binaries are provided:
+Six archives are provided:
 
-| Binary | Platform |
+| Archive | Platform |
 | --- | --- |
-| `watchgha-x86_64-unknown-linux-musl` | Linux x86_64 |
-| `watchgha-aarch64-unknown-linux-musl` | Linux arm64 |
-| `watchgha-x86_64-apple-darwin` | macOS Intel |
-| `watchgha-aarch64-apple-darwin` | macOS Apple Silicon |
-
-You can verify a download against `checksums.txt`, which is uploaded alongside
-the binaries.
+| `watchgha-x86_64-unknown-linux-gnu.tar.xz` | Linux x86_64, needs glibc |
+| `watchgha-x86_64-unknown-linux-musl.tar.xz` | Linux x86_64, statically linked |
+| `watchgha-aarch64-unknown-linux-gnu.tar.xz` | Linux arm64, needs glibc |
+| `watchgha-aarch64-unknown-linux-musl.tar.xz` | Linux arm64, statically linked |
+| `watchgha-x86_64-apple-darwin.tar.xz` | macOS Intel |
+| `watchgha-aarch64-apple-darwin.tar.xz` | macOS Apple Silicon |
 
 Alternatively, build it from source with `cargo`:
 
@@ -232,7 +232,7 @@ Release process:
 - Run `make fmt clippy test`.
 - Tag the commit, for example `git tag -s -m "Version 3.0.0" v3.0.0`, and push
   the tag.
-- GitHub Actions builds the four binaries and publishes them as a GitHub
+- GitHub Actions builds the six archives and publishes them as a GitHub
   Release.
 
 3.0.0 – 2026-10-23

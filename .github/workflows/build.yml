@@ -1,4 +1,17 @@
-name: watchgha
+---
+# Release: one binary per (platform, ABI) pair, attached to
+# the GitHub Release of the pushed tag.
+#
+# The matrix mirrors unilsp's release.yml: every Linux target
+# goes through cross-rs so the binary comes out of a fixed
+# toolchain image instead of whatever the runner ships, and
+# the macOS targets build natively — `x86_64-apple-darwin`
+# on an Intel runner, `aarch64-apple-darwin` on the arm64 one.
+#
+# Test runs on every push and pull request. Building and
+# releasing only happens for a `v*` tag, or on a manual
+# `workflow_dispatch` to the release named by its input.
+name: Release
 
 on:
   push:
@@ -7,9 +20,27 @@ on:
       - "v*"
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        required: true
+        description: release to attach the binaries to
+        default: nightly
+        type: string
 
+# Attaching to a release needs more than the read-only
+# default token.
 permissions:
-  contents: read
+  contents: write
+
+# A re-pushed tag or a second dispatch supersedes the run in
+# flight for the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO: cargo
+  RUST_BACKTRACE: 1
 
 jobs:
   test:
@@ -17,10 +48,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: [clippy, rustfmt]
+          components: clippy, rustfmt
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: TZ=UTC cargo test
@@ -28,62 +59,65 @@ jobs:
   build:
     name: ${{ matrix.target }}
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            make: zigbuild
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            make: zigbuild
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            make: build
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            make: build
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-latest
+            cross: true
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            cross: false
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            cross: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - name: Install cargo-zigbuild
-        if: matrix.make == 'zigbuild'
-        run: cargo install --locked cargo-zigbuild
-      - name: Build
-        run: cargo ${{ matrix.make }} --release --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/watchgha
-          if-no-files-found: error
 
-  release:
-    name: Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-      - name: Name the binaries
+      - name: Install Cross
+        # The pre-built cross binary rather than
+        # `cargo install cross`, which spends ~5 min compiling
+        # a tool the job uses once.
+        if: matrix.cross
         run: |
-          cd dist
-          for dir in */; do
-            mv "$dir/watchgha" "watchgha-${dir%/}"
-            rmdir "$dir"
-          done
-      - run: cd dist && sha256sum watchgha-* > checksums.txt
-      - uses: softprops/action-gh-release@v2
+          mkdir -p "$HOME/.cargo/bin"
+          curl -L --proto '=https' --tlsv1.2 -sSf \
+            https://github.com/cross-rs/cross/releases/download/v0.2.5/cross-x86_64-unknown-linux-gnu.tar.gz \
+            | tar -xzf - -C "$HOME/.cargo/bin"
+          echo "CARGO=cross" >> "$GITHUB_ENV"
+
+      - name: Build release binary
+        run: ${{ env.CARGO }} build --release --locked --target ${{ matrix.target }}
+
+      - name: Package ${{ matrix.target }}
+        run: |
+          cd "target/${{ matrix.target }}/release"
+          tar -cJf "watchgha-${{ matrix.target }}.tar.xz" watchgha
+          mv "watchgha-${{ matrix.target }}.tar.xz" "$GITHUB_WORKSPACE/"
+
+      - name: Release
+        env:
+          # A tag push releases that tag; a dispatch releases
+          # to the name given in the `release` input.
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || (github.event_name == 'workflow_dispatch' && inputs.release) || 'nightly' }}
+        uses: softprops/action-gh-release@v3
         with:
-          files: dist/*
-          generate_release_notes: true
+          tag_name: ${{ env.TAG }}
+          files: watchgha-*.tar.xz
