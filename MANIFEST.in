@@ -1,5 +1,0 @@
-include .editorconfig
-include Makefile
-include watch.gif
-
-recursive-include tests *.py

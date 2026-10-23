@@ -1,9 +1,3 @@
-*.pyc
-*.pyo
-.coverage
+/target
 get_*.json
 get_index.txt
-
-*.egg-info/
-build/
-dist/
