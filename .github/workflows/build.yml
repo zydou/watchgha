@@ -8,9 +8,10 @@
 # the macOS targets build natively — `x86_64-apple-darwin`
 # on an Intel runner, `aarch64-apple-darwin` on the arm64 one.
 #
-# Test runs on every push and pull request. Building and
-# releasing only happens for a `v*` tag, or on a manual
-# `workflow_dispatch` to the release named by its input.
+# Test runs on every push and pull request. A `v*` tag
+# releases that tag; a push to main refreshes the `nightly`
+# release; a manual `workflow_dispatch` releases to the name
+# given in its input.
 name: Release
 
 on:
@@ -59,7 +60,7 @@ jobs:
   build:
     name: ${{ matrix.target }}
     needs: test
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
